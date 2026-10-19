@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.log
+# 本机专属：令牌、模型路径、个人热词、客户端配置（各自有 .example 模板）
+server/.token
+server/.env
+server/hotwords.txt
+client/config.ini
+client/build/
+client/dist/

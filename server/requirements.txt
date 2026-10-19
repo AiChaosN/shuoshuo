@@ -1,0 +1,6 @@
+# torch 要从 cu128 源单独装（见 setup.sh）；qwen-asr 用 --no-deps 装，它声明的 gradio/flask/vllm 等这里用不到
+transformers==4.57.6
+accelerate==1.12.0
+librosa
+soundfile
+numpy

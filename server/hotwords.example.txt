@@ -1,0 +1,10 @@
+# 热词 / 术语表：每行一个，识别时作为上下文提示给模型（专有名词、英文术语、人名、产品名都可以放）
+# 用法：复制为 hotwords.txt 再改成你自己常说的词（hotwords.txt 不进 git），保存后下一句自动生效，不用重启服务
+# 只放你真的会说、又容易被识别错的词，几十个以内效果最好
+PostgreSQL
+PyTorch
+GitHub
+Kubernetes
+Transformer
+Claude Code
+VS Code
