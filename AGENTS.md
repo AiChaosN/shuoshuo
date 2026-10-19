@@ -4,7 +4,7 @@ This repository was written by an AI coding agent (Claude Code), working from on
 
 ## What it is
 
-Push-to-talk voice input for Windows. The user holds a hotkey (default CapsLock) and speaks. On release, the transcript is typed at the cursor of whatever app has focus. Recognition runs on the user's own NVIDIA GPU server (Qwen3-ASR-1.7B). Clients are thin and reach the server over LAN or Tailscale. No cloud services.
+Push-to-talk voice input for Windows and macOS. The user holds a hotkey (default CapsLock on Windows, Right Option on macOS) and speaks. On release, the transcript is typed at the cursor of whatever app has focus. Recognition runs on the user's own NVIDIA GPU server (Qwen3-ASR-1.7B). Clients are thin and reach the server over LAN or Tailscale. No cloud services.
 
 ## Core design decisions (keep these when adapting)
 
@@ -22,10 +22,12 @@ Push-to-talk voice input for Windows. The user holds a hotkey (default CapsLock)
 | `server/setup.sh` | `uv` venv on uv-managed Python 3.11, torch 2.10 cu128, deps, then `qwen-asr==0.0.6 --no-deps`. Creates `hotwords.txt` from the template. |
 | `server/run_server.sh` | Sources `server/.env` (for example `SHUOSHUO_MODEL=/path/to/model`). Default model is `Qwen/Qwen3-ASR-1.7B` from HuggingFace. Creates `.token`. Extra args go to `server.py` (`--port`, `-v`, `--language`, ...). |
 | `server/hotwords.example.txt` | Template for `hotwords.txt` (git-ignored, personal). |
-| `client/shuoshuo.py` | Single-file Windows client: ctypes Win32 (low-level keyboard hook, SendInput, clipboard), sounddevice, pystray. |
-| `client/config.example.ini` | Template for `config.ini` (git-ignored): `server`, `token`, `hotkey`, `tap_seconds`, `strip_trailing_punct`, `sound`, `keep_mic_open`, `server_cmd`. |
-| `client/start.bat` | Runs the client with `pythonw` from `%LOCALAPPDATA%\shuoshuo\venv`. |
-| `client/build.ps1` | PyInstaller onedir build → `client\dist\shuoshuo\` (portable; no Python needed on target devices). |
+| `client/shuoshuo.py` | Platform-independent client core: recorder (sounddevice), HTTP + retry, tray state (pystray), config, logging. Imports `platform_mac` or `platform_win` as `plat`. |
+| `client/platform_win.py` | ctypes Win32: low-level keyboard hook, SendInput, clipboard, winsound, mutex. |
+| `client/platform_mac.py` | pyobjc: CGEventTap hotkey, CGEvent Unicode typing or clipboard + ⌘V, NSPasteboard, NSSound, Carbon TIS (IME detection, via ctypes), main-thread dispatch for the menu bar. |
+| `client/config.example.ini` | Template for `config.ini` (git-ignored): `server`, `token`, `hotkey` (blank = platform default), `tap_seconds`, `strip_trailing_punct`, `sound`, `keep_mic_open`, `server_cmd`, `mac_inject`. |
+| `client/start.bat` / `client/start.sh` | Run the client from `%LOCALAPPDATA%\shuoshuo\venv` (`pythonw`) / `~/Library/Application Support/shuoshuo/venv`. |
+| `client/build.ps1` / `client/build_mac.sh` | PyInstaller builds → `client\dist\shuoshuo\` (portable folder) / `client/dist/shuoshuo.app` (ad-hoc signed, `LSUIElement`, config in `~/Library/Application Support/shuoshuo/`). |
 
 ## Deployment playbook
 
@@ -70,6 +72,16 @@ Fill in `server` and `token` in `config.ini`, then run `client\start.bat`. If th
 
 Verify: `client/shuoshuo.log` shows lines like `4.2s 音频 → 20 字，往返 300 ms（推理 280 ms）`. The live test (hold the hotkey, speak) must be done by the **user**; see the safety rules.
 
+### 2b. macOS client
+
+```bash
+python3 -m venv ~/Library/Application\ Support/shuoshuo/venv
+~/Library/Application\ Support/shuoshuo/venv/bin/pip install -r client/requirements.txt
+cp client/config.example.ini client/config.ini   # or: client/build_mac.sh → dist/shuoshuo.app
+```
+
+The user must grant Accessibility, Input Monitoring and Microphone in System Settings → Privacy & Security. Grants attach to the launching binary: the terminal app for `start.sh` (often an IDE like Cursor, which is a broad grant; prefer the `.app`), or `shuoshuo.app`. The hotkey thread retries every 3 s, so granting takes effect without restart.
+
 ### 3. Other devices
 
 Use the portable build (`client\build.ps1` → copy `client\dist\shuoshuo\`, edit its `config.ini`). For remote access, put the server and the devices on the same Tailscale tailnet. Have the user open `http://<server-node>:8765/health` in a browser on the device.
@@ -102,6 +114,17 @@ Use the portable build (`client\build.ps1` → copy `client\dist\shuoshuo\`, edi
 - UIPI: you cannot hook or type into elevated windows unless the client is elevated too.
 - PortAudio MME captures 16 kHz directly. Fallback is the device default rate, and the server resamples. Open the stream per key press so a changed default mic is picked up.
 
+**macOS client (pyobjc)**
+- CapsLock hold isn't reliably detectable (toggle semantics + debounce). Default is Right Option; modifiers arrive as `kCGEventFlagsChanged`, and down/up comes from the device-specific flag bit (`0x40` for right Option), not the keycode.
+- A lone modifier tap does nothing, so `replay_tap` only re-posts F-keys.
+- The tap gets disabled by `kCGEventTapDisabledByTimeout` / `...ByUserInput`; re-enable it in the callback or the hotkey silently dies.
+- Mark injected events with `kCGEventSourceUserData`, the equivalent of `dwExtraInfo`.
+- `CGEventKeyboardSetUnicodeString` takes at most ~20 UTF-16 units per event; don't split surrogate pairs. With Pinyin and similar IMEs active, these events may be routed through the IME, so `mac_inject = auto` pastes via clipboard + ⌘V instead and restores the previous clipboard (unless it changed meanwhile).
+- Carbon TIS (`TISCopyCurrentKeyboardInputSource`) must run on the main thread; `platform_mac._on_main` dispatches it.
+- pystray's darwin backend updates NSStatusItem on whatever thread calls it; route `icon.icon/title/update_menu/visible` through `plat.ui`.
+- "Same window" check: frontmost app pid + its frontmost layer-0 window number from `CGWindowListCopyWindowInfo`.
+- PyInstaller `--add-data` paths resolve relative to `--specpath`; use absolute paths. Re-signing ad-hoc on every build can invalidate TCC grants: remove and re-add the app in Privacy settings.
+
 **Windows tooling**
 - PowerShell 5.1 parses BOM-less `.ps1` files as the ANSI code page (GBK on Chinese Windows). Save scripts that contain non-ASCII as UTF-8 **with BOM**. Its output, seen from WSL, is GBK too (`iconv -f GBK -t UTF-8`).
 - In zsh, `pkill -f <pattern>` can match your own shell command. Use the `[x]yz` regex trick.
@@ -118,12 +141,6 @@ Use the portable build (`client\build.ps1` → copy `client\dist\shuoshuo\`, edi
 
 - **Smaller GPU:** set `SHUOSHUO_MODEL` to `Qwen/Qwen3-ASR-0.6B`.
 - **No GPU:** this server is not meant for CPU. Keep the same `/asr` contract and swap the backend, for example sherpa-onnx with SenseVoice-Small, which is fast on CPU.
-- **macOS client (not implemented):** same protocol. Replace three parts:
-  - hotkey: Quartz event tap or pynput. CapsLock hold isn't reliably detectable on macOS, so use Fn/Globe or Right Option;
-  - text injection: `CGEventKeyboardSetUnicodeString`, or clipboard + ⌘V;
-  - status icon: a menu bar item.
-
-  Needs Accessibility and Microphone permissions.
 - **iOS (not implemented):** there are no global hotkeys, and custom keyboards cannot use the microphone. Options:
   - a Shortcuts flow (Record Audio → Get Contents of URL with the token header → Copy to Clipboard). The server would need to accept m4a;
   - an OpenAI-compatible `POST /v1/audio/transcriptions` endpoint, so that third-party keyboards with a self-hosted mode can call it.
@@ -131,4 +148,4 @@ Use the portable build (`client\build.ps1` → copy `client\dist\shuoshuo\`, edi
 
 ## Conventions when editing code
 
-Chinese comments and UI strings, English identifiers. Keep the client a single, stdlib-first file with no heavy dependencies. Keep the server's HTTP contract stable, because deployed clients depend on it. After client changes, re-run `client\build.ps1` for the portable build.
+Chinese comments and UI strings, English identifiers. Keep the client stdlib-first with no heavy dependencies: shared logic in `shuoshuo.py`, OS specifics behind the same small interface in `platform_win.py` / `platform_mac.py` (`HOTKEYS`, `DEFAULT_HOTKEY`, `KeyHook`, `type_text`, `replay_tap`, `set_clipboard`, `foreground`, `play`, `open_file`, `spawn`, `single_instance`, `alert`, `notify`, `ui`, `data_dir`, `setup_app`). Keep the server's HTTP contract stable, because deployed clients depend on it. After client changes, re-run `client\build.ps1` / `client/build_mac.sh` for the portable builds.

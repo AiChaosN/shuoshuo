@@ -5,7 +5,7 @@
 > 🤖 **本项目由 AI 制作**：选型、代码、测试和文档都由 [Claude Code](https://claude.com/claude-code)（Claude Opus 5.5）完成，作者负责提需求、做决定，并在日常使用中验证效果。
 > 想自己搭一套？把[这段提示词](#让你的-ai-帮你部署)交给你的 AI 助手就行。
 
-自己的 Windows 语音输入：**按住 CapsLock 说话，松开后文字直接打到光标处**。
+自己的语音输入（Windows / macOS）：**按住热键说话，松开后文字直接打到光标处**。Windows 默认 CapsLock，macOS 默认右 Option。
 识别跑在你自己的 GPU 上（[Qwen3-ASR-1.7B](https://github.com/QwenLM/Qwen3-ASR)），其他设备通过局域网或 Tailscale 调用，不依赖任何云服务。
 
 ## 设计要点：网络再差，识别也不打折
@@ -17,12 +17,12 @@
 ## 结构
 
 ```
-client/   Windows 客户端：热键 + 录音 + 输入 + 托盘（只依赖 sounddevice / pystray / Pillow，不需要 GPU）
+client/   客户端（Windows / macOS）：热键 + 录音 + 输入 + 托盘 / 菜单栏（不需要 GPU）
 server/   识别服务：Linux / WSL2 + NVIDIA GPU，Qwen3-ASR + 热词表
 ```
 
 ```
-[任意 Windows 设备]  按住热键录音 ──整段 WAV, HTTP──▶  [GPU 主机]  Qwen3-ASR-1.7B
+[Windows / Mac 设备]  按住热键录音 ──整段 WAV, HTTP──▶  [GPU 主机]  Qwen3-ASR-1.7B
    SendInput 打字  ◀──────── JSON {text} ─────────   hotwords.txt 作为上下文
 ```
 
@@ -60,6 +60,24 @@ copy client\config.example.ini client\config.ini
 
 在一台装好 Python 的 Windows 上运行 `client\build.ps1`，把生成的 `client\dist\shuoshuo\` 整个文件夹拷到任意 Windows 设备，改好里面的 `config.ini`，双击 `shuoshuo.exe`。目标设备不需要 Python，也不需要 GPU。
 
+### 客户端（macOS 12+）
+
+**方式一：Python 3.9+**
+
+```bash
+python3 -m venv ~/Library/Application\ Support/shuoshuo/venv
+~/Library/Application\ Support/shuoshuo/venv/bin/pip install -r client/requirements.txt
+cp client/config.example.ini client/config.ini
+```
+
+填好 `server` 和 `token`，运行 `client/start.sh`。这种方式下，权限会记在你启动它的终端 App 上。
+
+**方式二：shuoshuo.app**
+
+运行 `client/build_mac.sh`，把 `client/dist/shuoshuo.app` 拖进「应用程序」后打开。配置文件在 `~/Library/Application Support/shuoshuo/config.ini`（菜单栏「打开配置文件」），第一次运行时会自动生成。
+
+两种方式都要在「系统设置 → 隐私与安全性」里授权：**辅助功能**、**输入监控**（热键和输入）、**麦克风**。热键授权后几秒内自动生效，不用重启。
+
 ### 跨设备 / 跨网络
 
 推荐用 [Tailscale](https://tailscale.com/)：服务器和各个设备登录同一账号，`server` 填服务器在 Tailscale 里的名字或 IP，例如 `http://my-gpu-box:8765`。
@@ -79,8 +97,8 @@ copy client\config.example.ini client\config.ini
 
 ## 用法
 
-- 按住 CapsLock 说话（听到上扬的"嘀"开始录），松开（下降的"嘀"）后自动输入
-- 短按 CapsLock 仍是切换大小写
+- 按住热键说话（听到上扬的"嘀"开始录），松开（下降的"嘀"）后自动输入
+- 短按 CapsLock 仍是切换大小写；macOS 上单按右 Option 本来就没有作用
 - 托盘图标：蓝 = 就绪，红 = 录音中，橙 = 识别中，灰 = 暂停 / 服务不可用
 - 热键、提示音、去句号等在 `client/config.ini` 里改（托盘菜单「打开配置文件」）
 
@@ -93,7 +111,10 @@ RTX 5090，transformers 后端：模型加载约 2 s，显存约 4.8 GB；4 s �
 
 - 前台是"以管理员身份运行"的程序时，热键和输入会被 Windows（UIPI）拦掉，需要客户端也以管理员运行
 - Win11 新托盘图标默认折叠在 ^ 里，可以拖到任务栏上常驻，方便看录音状态
-- 目前只有 Windows 客户端；macOS / iOS 的思路见 AGENTS.md
+- macOS 上 CapsLock 按住检测不准，不能当热键。用 Fn/🌐 当热键时，先在「系统设置 → 键盘」里把「按下 🌐 键时」设成「无操作」
+- macOS 上光标在密码框里、或者 1Password 之类的应用开着 Secure Input 时，热键收不到
+- macOS 上当前是拼音等输入法时，结果用剪贴板 + ⌘V 粘贴，粘完会把原来的剪贴板内容放回去（`mac_inject` 可改）
+- iOS / Linux 客户端还没有，思路见 AGENTS.md
 
 ## 隐私
 

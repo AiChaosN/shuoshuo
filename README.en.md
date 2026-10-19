@@ -5,7 +5,7 @@
 > 🤖 **Built by AI**: model selection, code, tests and docs were all done by [Claude Code](https://claude.com/claude-code) (Claude Opus 5.5). The author wrote the requirements, made the decisions, and validates it in daily use.
 > Want your own? Hand [this prompt](#let-your-ai-deploy-it) to your AI assistant.
 
-Self-hosted push-to-talk voice input for Windows: **hold CapsLock, speak, release, and the text is typed at your cursor.**
+Self-hosted push-to-talk voice input for Windows and macOS: **hold the hotkey, speak, release, and the text is typed at your cursor.** The default hotkey is CapsLock on Windows and Right Option on macOS.
 Recognition runs on your own GPU ([Qwen3-ASR-1.7B](https://github.com/QwenLM/Qwen3-ASR)). Other devices use it over the LAN or Tailscale. No cloud services involved.
 
 It works best for Chinese, English and mixed Chinese–English speech. Qwen3-ASR covers 30 languages and 22 Chinese dialects. The client UI is in Chinese.
@@ -19,12 +19,12 @@ It works best for Chinese, English and mixed Chinese–English speech. Qwen3-ASR
 ## Layout
 
 ```
-client/   Windows client: hotkey + mic + text input + tray (only sounddevice / pystray / Pillow, no GPU needed)
+client/   Client (Windows / macOS): hotkey + mic + text input + tray / menu bar (no GPU needed)
 server/   Recognition server: Linux / WSL2 + NVIDIA GPU, Qwen3-ASR + hotword list
 ```
 
 ```
-[any Windows device]  hold hotkey, record ──whole WAV, HTTP──▶  [GPU box]  Qwen3-ASR-1.7B
+[Windows / Mac device]  hold hotkey, record ──whole WAV, HTTP──▶  [GPU box]  Qwen3-ASR-1.7B
    SendInput typing   ◀─────────── JSON {text} ────────────   hotwords.txt as context
 ```
 
@@ -63,6 +63,24 @@ If the server runs on the same machine (for example in this PC's WSL), set `serv
 
 On a Windows machine with Python, run `client\build.ps1`. Copy the resulting `client\dist\shuoshuo\` folder to any Windows device, edit its `config.ini`, and double-click `shuoshuo.exe`. The target device needs neither Python nor a GPU.
 
+### Client (macOS 12+)
+
+**Option 1: Python 3.9+**
+
+```bash
+python3 -m venv ~/Library/Application\ Support/shuoshuo/venv
+~/Library/Application\ Support/shuoshuo/venv/bin/pip install -r client/requirements.txt
+cp client/config.example.ini client/config.ini
+```
+
+Set `server` and `token`, then run `client/start.sh`. Permissions are then granted to the terminal app you launched it from.
+
+**Option 2: shuoshuo.app**
+
+Run `client/build_mac.sh`, drag `client/dist/shuoshuo.app` into Applications and open it. The config lives at `~/Library/Application Support/shuoshuo/config.ini` (menu bar 「打开配置文件」) and is created on first run.
+
+Either way, grant **Accessibility**, **Input Monitoring** (hotkey and typing) and **Microphone** in System Settings → Privacy & Security. The hotkey starts working a few seconds after you grant access; no restart needed.
+
 ### Across devices and networks
 
 [Tailscale](https://tailscale.com/) is recommended. Sign in to the same account on the server and on every device, then set `server` to the server's Tailscale name or IP, e.g. `http://my-gpu-box:8765`.
@@ -92,7 +110,7 @@ Send this to your AI coding assistant (Claude Code, Cursor, Codex, ...):
 ## Usage
 
 - Hold CapsLock and speak. A rising beep marks the start. Release (falling beep) and the text is typed.
-- A short tap still toggles CapsLock.
+- A short tap still toggles CapsLock. On macOS, a lone tap of Right Option does nothing anyway.
 - Tray icon colors: blue = ready, red = recording, orange = recognizing, gray = paused or server unavailable.
 - Hotkey, beeps, trailing-period removal and more are set in `client/config.ini` (tray menu 「打开配置文件」, "open config file").
 
@@ -107,7 +125,10 @@ On an RTX 5090 with the transformers backend:
 
 - When the foreground app runs as administrator, Windows (UIPI) blocks both the hotkey and text input. Run the client as administrator too.
 - Windows 11 hides new tray icons under the ^ overflow by default. Drag the icon onto the taskbar to keep the recording state visible.
-- Only a Windows client exists so far. See AGENTS.md for macOS / iOS approaches.
+- On macOS, holding CapsLock can't be detected reliably, so it can't be the hotkey. To use Fn/🌐, first set "Press 🌐 key to" to "Do Nothing" in System Settings → Keyboard.
+- On macOS the hotkey is not received while Secure Input is on (a password field has focus, or apps like 1Password enable it).
+- On macOS, when an input method such as Pinyin is active, the text is pasted via clipboard + ⌘V and the previous clipboard is restored afterwards (see `mac_inject`).
+- No iOS / Linux client yet. See AGENTS.md for approaches.
 
 ## Privacy
 
