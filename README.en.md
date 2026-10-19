@@ -43,6 +43,7 @@ cd server
 - **Model stored elsewhere**: run `hf download Qwen/Qwen3-ASR-1.7B --local-dir /your/model/dir`, then put `SHUOSHUO_MODEL=/your/model/dir` in `server/.env`.
 - **Not enough VRAM**: switch to `Qwen/Qwen3-ASR-0.6B`. It is smaller and faster, with a slightly higher Chinese error rate.
 - **Hotwords**: `server/hotwords.txt` takes one proper noun or English term per line. Changes apply from the next utterance; no restart needed.
+- **Numbers**: Chinese numerals in the transcript are converted to digits, e.g. 120次, 15%, 下午3点 (3 p.m.), 2026年10月19号, 1、2、3. Words that merely contain numerals (一起, 十分重要, 三个方法) are left alone. Pass `--no-itn` to keep Chinese numerals.
 - `./run_server.sh -v` logs the recognized text. By default only duration and character count are logged.
 
 ### Client (Windows 10 / 11)

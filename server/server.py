@@ -25,6 +25,8 @@ transformers.logging.set_verbosity_error()  # 不然每条请求都打一行 pad
 sys.modules.setdefault("nagisa", types.ModuleType("nagisa"))
 from qwen_asr import Qwen3ASRModel  # noqa: E402
 
+import itn  # noqa: E402
+
 log = logging.getLogger("shuoshuo")
 MAX_BODY = 64 << 20  # 16k/16-bit 单声道约 35 分钟
 
@@ -97,6 +99,8 @@ class Handler(BaseHTTPRequestHandler):
         t0 = time.perf_counter()
         try:
             lang, text = srv.recognizer(wav, sr, srv.hotwords.get())
+            if srv.itn:
+                text = itn.normalize(text)  # 模型输出汉字数字，这里转成阿拉伯数字
         except Exception as e:
             log.exception("识别出错")
             return self._reply(500, {"error": str(e)})
@@ -125,6 +129,7 @@ def main():
     ap.add_argument("--hotwords", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "hotwords.txt"))
     ap.add_argument("--language", default="", help="留空自动识别（中英混说就留空），也可填 Chinese / English 等")
     ap.add_argument("--device", default="cuda:0")
+    ap.add_argument("--no-itn", action="store_true", help="保留汉字数字，不转成阿拉伯数字")
     ap.add_argument("-v", "--verbose", action="store_true", help="日志里显示识别出的文字")
     args = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
@@ -137,6 +142,7 @@ def main():
 
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     srv.recognizer, srv.hotwords, srv.token, srv.verbose = recognizer, Hotwords(args.hotwords), args.token, args.verbose
+    srv.itn = not args.no_itn
     srv.hotwords.get()
     if args.host not in ("127.0.0.1", "localhost") and not args.token:
         log.warning("对外监听但没设 token，同一网络里谁都能用")
