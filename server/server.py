@@ -95,6 +95,9 @@ class Handler(BaseHTTPRequestHandler):
             wav, sr = read_wav(body)
         except Exception as e:
             return self._reply(400, {"error": f"音频解析失败：{e}"})
+        if len(wav) < sr // 10:  # 客户端麦克风没出数据时会传来空音频，太短的音频模型那边直接报错（STFT 补边不够长）
+            log.warning("音频只有 %d 个采样，客户端麦克风可能没录到声音", len(wav))
+            return self._reply(400, {"error": "音频是空的，客户端麦克风可能没录到声音"})
 
         t0 = time.perf_counter()
         try:

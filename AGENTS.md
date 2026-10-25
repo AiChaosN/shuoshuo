@@ -97,6 +97,7 @@ Use the portable build (`client\build.ps1` → copy `client\dist\shuoshuo\`, edi
 - RTX 50xx (Blackwell) needs CUDA 12.8 torch builds (`cu128`).
 - HF `hf_xet` downloads can hang at the very end: sockets sit in CLOSE-WAIT, and the file is preallocated with holes, so it has the right size but the wrong hash. Always verify sha256 against `https://huggingface.co/api/models/<repo>?blobs=true`. The ModelScope mirror (`https://modelscope.cn/models/<org>/<name>/resolve/master/<file>`) supports Range requests; parallel chunked download from it was faster.
 - `transformers` logs a `pad_token_id` warning on every `generate`; `server.py` lowers the verbosity.
+- `qwen-asr` only zero-pads short chunks when it splits long audio. A short single clip goes straight into the Whisper STFT, so empty or < ~12.5 ms audio raises → 500. That is what a client whose mic delivers no data sends. `server.py` rejects < 0.1 s with 400, and the client doesn't upload such recordings; it notifies instead.
 - Numbers: Qwen3-ASR outputs spoken-form Chinese numerals, and putting digit examples or instructions in `context` does **not** change that. Off-the-shelf ITN libraries were tried and rejected:
   - `cn2an.transform` over-converts: 一起 → 1起, 四川 → 4川.
   - WeTextProcessing / `wetext` without `enable_0_to_9` produce writing styles unsuited to Chinese prose: 三月五号 → 03/05, 下午三点半 → 3:30p.m., 十分钟 → 10min. They also mis-convert 十分重要 → 10分重要 and 几十个 → 几10个.

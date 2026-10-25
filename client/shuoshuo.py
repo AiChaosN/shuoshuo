@@ -203,6 +203,7 @@ class App:
                 log.exception("麦克风打开失败")
                 self.notify(f"麦克风打开失败：{e}")
                 continue
+            t0 = time.monotonic()
             try:
                 self.events.get(timeout=self.tap)
             except queue.Empty:
@@ -220,6 +221,11 @@ class App:
             pcm = self.recorder.stop()
             self.recording = False
             self.play("stop")
+            if len(pcm) < self.recorder.rate // 5:  # 不到 0.1 秒（每个采样 2 字节）：麦克风没送来数据，传上去也识别不了
+                log.warning("没录到声音：按住 %.1f 秒，只收到 %d 字节", time.monotonic() - t0, len(pcm))
+                self.notify("没录到声音：麦克风没送来数据\n检查一下系统的默认录音设备")
+                self.refresh()
+                continue
             # 记下松键时的前台窗口：识别回来如果用户已经切走了，就不往别处打字
             self.jobs.put((pcm, self.recorder.rate, plat.foreground()))
             self.refresh()
