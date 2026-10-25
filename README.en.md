@@ -45,6 +45,8 @@ cd server
 - **Hotwords**: `server/hotwords.txt` takes one proper noun or English term per line. Changes apply from the next utterance; no restart needed.
 - **Numbers**: Chinese numerals in the transcript are converted to digits, e.g. 120次, 15%, 下午3点 (3 p.m.), 2026年10月19号, 1、2、3. Words that merely contain numerals (一起, 十分重要, 三个方法) are left alone. Pass `--no-itn` to keep Chinese numerals.
 - `./run_server.sh -v` logs the recognized text. By default only duration and character count are logged.
+- **Transcript history**: put `SHUOSHUO_HISTORY=history` in `server/.env` and every result is appended to `server/history/2026-10.jsonl` (one file per month, one utterance per line, with time, client IP, duration and text; when digit conversion changed the text, the original is kept too). Skim it now and then and add proper nouns that keep coming out wrong to the hotword list. Off by default. Add `SHUOSHUO_HISTORY_AUDIO=1` to keep the audio too (`server/history/2026-10/*.wav`, about 115 MB per hour of speech), so you can re-run it after changing hotwords or the model.
+- **Replay**: `.venv/bin/python replay.py --hotwords candidate.txt` re-recognizes the saved audio with a candidate hotword list and prints only the utterances whose result changed, with the changed fragments (e.g. `Postgre SQL → PostgreSQL`). Check what got fixed and whether anything broke, then replace `hotwords.txt`. Without `--hotwords` it uses the current list; `--last 200` replays only the latest 200 utterances. It loads a second copy of the model (about 5 GB of VRAM), so it can run while the server is up.
 
 ### Client (Windows 10 / 11)
 
@@ -134,7 +136,7 @@ On an RTX 5090 with the transformers backend:
 ## Privacy
 
 - Audio is sent only to the server you configure, never to a third party.
-- The server logs only duration and character count by default; transcripts are logged only with `-v`. The client log records only duration, character count and latency.
+- The server logs only duration and character count by default. Transcripts are shown in the log only with `-v`, saved to disk only when `SHUOSHUO_HISTORY` is set, and audio is saved only when `SHUOSHUO_HISTORY_AUDIO=1` is set too. The client log records only duration, character count and latency.
 - shuoshuo itself collects and reports nothing. The first model download contacts HuggingFace.
 
 ## Acknowledgements

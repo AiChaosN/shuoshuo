@@ -5,6 +5,7 @@ __pycache__/
 server/.token
 server/.env
 server/hotwords.txt
+server/history/
 client/config.ini
 client/build/
 client/dist/

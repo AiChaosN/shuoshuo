@@ -19,9 +19,10 @@ Push-to-talk voice input for Windows and macOS. The user holds a hotkey (default
 
 | Path | Role |
 |---|---|
-| `server/server.py` | stdlib `http.server`. `GET /health` → `{"ok": true}`. `POST /asr`: body is a 16-bit mono WAV at any sample rate (resampled server-side), header `Authorization: Bearer <token>`. Returns `{"text", "language", "ms"}`; errors are 400/401/413/500 with `{"error"}`. Inference is serialized by a lock. |
+| `server/server.py` | stdlib `http.server`. `GET /health` → `{"ok": true}`. `POST /asr`: body is a 16-bit mono WAV at any sample rate (resampled server-side), header `Authorization: Bearer <token>`. Returns `{"text", "language", "ms"}`; errors are 400/401/413/500 with `{"error"}`. Inference is serialized by a lock. `--history DIR` appends each result to `DIR/YYYY-MM.jsonl` (`t`, `ip`, `sec`, `ms`, `lang`, `text`, plus `raw` when ITN changed it); off by default. `--history-audio` also saves the uploaded WAV as-is to `DIR/YYYY-MM/<timestamp>.wav` and adds its relative path as `audio`. |
 | `server/setup.sh` | `uv` venv on uv-managed Python 3.11, torch 2.10 cu128, deps, then `qwen-asr==0.0.6 --no-deps`. Creates `hotwords.txt` from the template. |
-| `server/run_server.sh` | Sources `server/.env` (for example `SHUOSHUO_MODEL=/path/to/model`). Default model is `Qwen/Qwen3-ASR-1.7B` from HuggingFace. Creates `.token`. Extra args go to `server.py` (`--port`, `-v`, `--language`, ...). |
+| `server/run_server.sh` | Sources `server/.env` (for example `SHUOSHUO_MODEL=/path/to/model`, `SHUOSHUO_HISTORY=history` → `--history`, `SHUOSHUO_HISTORY_AUDIO=1` → `--history-audio`). Default model is `Qwen/Qwen3-ASR-1.7B` from HuggingFace. Creates `.token`. Extra args go to `server.py` (`--port`, `-v`, `--language`, ...). |
+| `server/replay.py` | Re-recognizes saved history audio (`--history-audio`) with the current or a candidate `--hotwords` list and prints only the utterances whose text changed, plus the changed fragments. Loads its own model copy; imports `Hotwords`, `Recognizer`, `read_wav` from `server.py`. |
 | `server/hotwords.example.txt` | Template for `hotwords.txt` (git-ignored, personal). |
 | `server/itn.py` | Chinese numeral → digit post-processing (pure Python regex rules, no dependencies). |
 | `server/test_itn.py` | Expected-behavior table for `itn.py`. Run `python3 server/test_itn.py` after any rule change; it must stay fully green. |
@@ -141,7 +142,7 @@ Use the portable build (`client\build.ps1` → copy `client\dist\shuoshuo\`, edi
 
 ## Safety rules for agents
 
-- Never commit `server/.token`, `server/.env`, `server/hotwords.txt` or `client/config.ini`. They are git-ignored on purpose.
+- Never commit `server/.token`, `server/.env`, `server/hotwords.txt`, `server/history/` or `client/config.ini`. They are git-ignored on purpose.
 - Don't expose the server beyond localhost without a token. Don't change firewall, router or Tailscale settings without asking.
 - Don't inject keystrokes into the user's desktop during automated tests. To test typing, create your own window, verify `GetForegroundWindow()` equals it **before** injecting, wait until the text stops changing, then close it. Abort if focus can't be acquired.
 - Tests that set the clipboard overwrite the user's clipboard; say so.

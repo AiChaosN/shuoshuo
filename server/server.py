@@ -50,6 +50,36 @@ class Hotwords:
         return self.context
 
 
+class History:
+    """识别记录：每句一行 JSON，按月分文件（2026-10.jsonl），日后翻出来补热词、调数字规则。
+
+    存音频时，原样存客户端传来的 WAV（2026-10/20261025-112436-123.wav），记录里 audio 字段指向它：
+    改了热词或换了模型，可以拿这些音频重跑一遍对比。
+    """
+
+    def __init__(self, folder, audio=False):
+        self.folder, self.audio = folder, audio
+        self.lock = threading.Lock()
+        os.makedirs(folder, mode=0o700, exist_ok=True)  # 说的话都在里面，只给自己看
+
+    def add(self, wav_bytes, **rec):
+        now = time.time()
+        lt = time.localtime(now)
+        rec = {"t": time.strftime("%Y-%m-%d %H:%M:%S", lt), **{k: v for k, v in rec.items() if v is not None}}
+        try:
+            with self.lock:
+                if self.audio:
+                    name = time.strftime("%Y-%m/%Y%m%d-%H%M%S", lt) + f"-{int(now * 1000) % 1000:03d}.wav"
+                    os.makedirs(os.path.join(self.folder, os.path.dirname(name)), mode=0o700, exist_ok=True)
+                    with open(os.path.join(self.folder, name), "wb") as f:
+                        f.write(wav_bytes)
+                    rec["audio"] = name
+                with open(os.path.join(self.folder, time.strftime("%Y-%m.jsonl", lt)), "a", encoding="utf-8") as f:
+                    f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        except OSError:
+            log.exception("识别记录写入失败")  # 记不下来也照常返回结果
+
+
 class Recognizer:
     def __init__(self, model, device, language):
         self.model = Qwen3ASRModel.from_pretrained(
@@ -101,14 +131,17 @@ class Handler(BaseHTTPRequestHandler):
 
         t0 = time.perf_counter()
         try:
-            lang, text = srv.recognizer(wav, sr, srv.hotwords.get())
-            if srv.itn:
-                text = itn.normalize(text)  # 模型输出汉字数字，这里转成阿拉伯数字
+            lang, raw = srv.recognizer(wav, sr, srv.hotwords.get())
+            text = itn.normalize(raw) if srv.itn else raw  # 模型输出汉字数字，这里转成阿拉伯数字
         except Exception as e:
             log.exception("识别出错")
             return self._reply(500, {"error": str(e)})
         ms = (time.perf_counter() - t0) * 1000
         log.info("%.1fs 音频 → %d 字，%.0f ms %s", len(wav) / sr, len(text), ms, text if srv.verbose else "")
+        if srv.history and text:
+            # raw 只在数字转换改动过时才记，方便对照规则有没有转错
+            srv.history.add(body, ip=self.client_address[0], sec=round(len(wav) / sr, 1), ms=round(ms), lang=lang,
+                            text=text, raw=raw if raw != text else None)
         self._reply(200, {"text": text, "language": lang, "ms": round(ms)})
 
     def _reply(self, code, obj):
@@ -134,7 +167,11 @@ def main():
     ap.add_argument("--device", default="cuda:0")
     ap.add_argument("--no-itn", action="store_true", help="保留汉字数字，不转成阿拉伯数字")
     ap.add_argument("-v", "--verbose", action="store_true", help="日志里显示识别出的文字")
+    ap.add_argument("--history", default="", help="把每句识别结果存到这个目录（按月一个 .jsonl），用来日后改热词；留空不存")
+    ap.add_argument("--history-audio", action="store_true", help="识别记录连音频一起存（每小时说话约 115 MB）")
     args = ap.parse_args()
+    if args.history_audio and not args.history:
+        ap.error("--history-audio 要和 --history 一起用")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
 
     log.info("加载模型 %s ...", args.model)
@@ -146,6 +183,9 @@ def main():
     srv = ThreadingHTTPServer((args.host, args.port), Handler)
     srv.recognizer, srv.hotwords, srv.token, srv.verbose = recognizer, Hotwords(args.hotwords), args.token, args.verbose
     srv.itn = not args.no_itn
+    srv.history = History(args.history, args.history_audio) if args.history else None
+    if srv.history:
+        log.info("识别记录%s存到 %s", "（含音频）" if args.history_audio else "", os.path.abspath(args.history))
     srv.hotwords.get()
     if args.host not in ("127.0.0.1", "localhost") and not args.token:
         log.warning("对外监听但没设 token，同一网络里谁都能用")
